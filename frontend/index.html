@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="https://www.kiwa.com/static/images/logo.svg">
+  <title>KIWA Oracle Inspection APP</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f4;
+      margin: 0;
+      padding: 0;
+    }
+
+    header {
+      background-color: #004a91;
+      padding: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    header img {
+      max-height: 50px;
+    }
+
+    header button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+
+    header button:hover {
+      background-color: #0056b3;
+    }
+
+    h1 {
+      color: #004a91;
+      text-align: center;
+    }
+
+    #capturedImage {
+      max-width: 100%;
+      margin-top: 10px;
+    }
+
+    pre {
+      background: #f4f4f4;
+      padding: 10px;
+      border: 1px solid #ddd;
+      margin-top: 10px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="https://www.kiwa.com/static/images/logo.svg" alt="KIWA Logo">
+    <button id="startInspection">Start Inspection</button>
+  </header>
+  <h1>KIWA Oracle Inspection APP</h1>
+
+  <!-- Display Orientation Data -->
+  <div>
+    <h2>Orientation Data</h2>
+    <p>Alpha (Yaw): <span id="alpha">N/A</span></p>
+    <p>Beta (Pitch): <span id="beta">N/A</span></p>
+    <p>Gamma (Roll): <span id="gamma">N/A</span></p>
+  </div>
+
+  <!-- Display Motion Data -->
+  <div>
+    <h2>Motion Data</h2>
+    <p>Acceleration X: <span id="accelX">N/A</span></p>
+    <p>Acceleration Y: <span id="accelY">N/A</span></p>
+    <p>Acceleration Z: <span id="accelZ">N/A</span></p>
+  </div>
+
+  <!-- Display GPS Data -->
+  <div>
+    <h2>GPS Data</h2>
+    <p>Latitude: <span id="latitude">N/A</span></p>
+    <p>Longitude: <span id="longitude">N/A</span></p>
+    <p>Accuracy: <span id="accuracy">N/A</span> meters</p>
+  </div>
+
+  <!-- Camera Capture Section -->
+  <div>
+    <h2>Camera Capture</h2>
+    <video id="video" autoplay playsinline style="width:1px; height:1px;"></video> <!-- Video is hidden -->
+    <canvas id="canvas" style="display:none;"></canvas>
+    <img id="capturedImage" alt="Captured Image will appear here">
+  </div>
+
+  <!-- Display JSON Data -->
+  <div>
+    <h2>JSON Structure</h2>
+    <pre id="jsonData">Loading...</pre>
+  </div>
+
+  <script>
+    const apiEndpoint = 'http://localhost/sink/roadSensor';
+    let sensorData = {
+      timestamp: null,
+      orientation: {
+        alpha: null,
+        beta: null,
+        gamma: null
+      },
+      motion: {
+        acceleration: { x: null, y: null, z: null }
+      },
+      gps: {
+        latitude: null,
+        longitude: null,
+        accuracy: null
+      },
+      image: null // Base64 image data
+    };
+
+    // Function to request permissions and start sensor events
+    function startInspection() {
+      // Handle orientation permission and event
+      if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission().then(permissionState => {
+          if (permissionState === 'granted') {
+            window.addEventListener('deviceorientation', handleOrientation);
+          } else {
+            console.error("Orientation permission not granted.");
+          }
+        }).catch(console.error);
+      } else {
+        window.addEventListener('deviceorientation', handleOrientation);
+      }
+
+      // Handle motion permission and event
+      if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission().then(permissionState => {
+          if (permissionState === 'granted') {
+            window.addEventListener('devicemotion', handleMotion);
+          } else {
+            console.error("Motion permission not granted.");
+          }
+        }).catch(console.error);
+      } else {
+        window.addEventListener('devicemotion', handleMotion);
+      }
+
+      // Geolocation (GPS) permission
+      getLocation();
+
+      // Start the camera
+      startCamera();
+    }
+
+    // Event listener for "Start Inspection" button
+    document.getElementById('startInspection').addEventListener('click', startInspection);
+
+    // Handle orientation data (yaw, pitch, roll)
+    function handleOrientation(event) {
+      if (event.alpha !== null && event.beta !== null && event.gamma !== null) {
+        sensorData.orientation.alpha = event.alpha.toFixed(2);
+        sensorData.orientation.beta = event.beta.toFixed(2);
+        sensorData.orientation.gamma = event.gamma.toFixed(2);
+
+        document.getElementById('alpha').innerText = sensorData.orientation.alpha;
+        document.getElementById('beta').innerText = sensorData.orientation.beta;
+        document.getElementById('gamma').innerText = sensorData.orientation.gamma;
+
+        updateJSONDisplay();
+      } else {
+        console.error("Orientation data is not available.");
+      }
+    }
+
+    // Handle motion data (acceleration)
+    function handleMotion(event) {
+      if (event.acceleration && event.acceleration.x !== null) {
+        sensorData.motion.acceleration.x = event.acceleration.x.toFixed(2);
+        sensorData.motion.acceleration.y = event.acceleration.y.toFixed(2);
+        sensorData.motion.acceleration.z = event.acceleration.z.toFixed(2);
+
+        document.getElementById('accelX').innerText = sensorData.motion.acceleration.x;
+        document.getElementById('accelY').innerText = sensorData.motion.acceleration.y;
+        document.getElementById('accelZ').innerText = sensorData.motion.acceleration.z;
+
+        updateJSONDisplay();
+      } else {
+        console.error("Motion data is not available.");
+      }
+    }
+
+    // Get the GPS location
+    function getLocation() {
+      if (navigator.geolocation) {
+        navigator.geolocation.watchPosition(showPosition, showError, {
+          enableHighAccuracy: true,
+          timeout: 5000,
+          maximumAge: 0
+        });
+      } else {
+        alert("Geolocation is not supported by this browser.");
+      }
+    }
+
+    // Show the GPS position (latitude, longitude, and accuracy)
+    function showPosition(position) {
+      sensorData.gps.latitude = position.coords.latitude.toFixed(6);
+      sensorData.gps.longitude = position.coords.longitude.toFixed(6);
+      sensorData.gps.accuracy = position.coords.accuracy;
+
+      document.getElementById('latitude').innerText = sensorData.gps.latitude;
+      document.getElementById('longitude').innerText = sensorData.gps.longitude;
+      document.getElementById('accuracy').innerText = sensorData.gps.accuracy;
+
+      updateJSONDisplay();
+    }
+
+    // Handle GPS errors
+    function showError(error) {
+      console.warn(`ERROR(${error.code}): ${error.message}`);
+    }
+
+    // Start camera and capture images every 5 seconds
+    function startCamera() {
+      const video = document.getElementById('video');
+      const canvas = document.getElementById('canvas');
+      const img = document.getElementById('capturedImage');
+      const context = canvas.getContext('2d');
+
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" } // Request the back camera
+      })
+      .then(function(stream) {
+        video.srcObject = stream;
+        video.play();
+
+        // Capture an image every 5 seconds
+        setInterval(function() {
+          // Ensure the video stream is still active
+          if (video.paused || video.readyState <= 2) {
+            video.play();
+          }
+
+          // Set canvas size to match video dimensions
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+          // Convert the canvas image to a base64 data URL and store it
+          sensorData.image = canvas.toDataURL('image/png').replace("data:image/png;base64,", "");
+          img.src = "data:image/png;base64," + sensorData.image; // Display the captured image
+
+          // Update JSON display and send to the server
+          updateJSONDisplay();
+          sendDataToServer();
+        }, 5000); // Every 5 seconds
+      })
+      .catch(function(error) {
+        console.error("Camera error:", error);
+      });
+    }
+
+    // Update the JSON structure display
+    function updateJSONDisplay() {
+      sensorData.timestamp = new Date().toISOString();
+      document.getElementById('jsonData').innerText = JSON.stringify(sensorData, null, 2);
+    }
+
+    // Send the data to the server (mock API)
+    function sendDataToServer() {
+        fetch(apiEndpoint, {
+            method: "POST",
+            headers: {
+            "Content-Type": "application/json"
+            },
+            body: JSON.stringify(sensorData)
+        })
+        .then(response => {
+            // Log the response to inspect its content
+            console.log("Response status:", response.status);
+            console.log("Response headers:", response.headers);
+            
+            // Check if the response is JSON
+            const contentType = response.headers.get("Content-Type");
+            if (contentType && contentType.includes("application/json")) {
+            return response.json();
+            } else {
+            // If not JSON, read as text and log it
+            return response.text().then(text => {
+                console.error("Expected JSON but received:", text);
+                throw new Error("Response is not JSON");
+            });
+            }
+        })
+        .then(data => {
+            console.log("Data sent to server:", data);
+        })
+        .catch(error => {
+            console.error("Error sending data to server:", error);
+        });
+    }
+  </script>
+</body>
+</html>
